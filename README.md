@@ -15,7 +15,7 @@ minishift delete & minishift start
 
 ## Login to OpenShift and create a new project
 ```
-oc login ocuser
+oc login -u ocuser
 oc new-project mic-test
 ```
 

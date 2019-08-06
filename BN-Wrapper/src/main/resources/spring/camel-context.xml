@@ -32,6 +32,12 @@
         <property name="configuration" ref="jmsConfig"/>
     </bean>
 
+    <!-- redeliveryPolicy -->
+	<bean id="redeliveryPolicy" class="org.apache.camel.processor.RedeliveryPolicy">
+        <property name="maximumRedeliveries" value="${activemq.maximumRedeliveries}"/>
+        <property name="redeliveryDelay" value="${activemq.redeliveryDelay}"/>
+    </bean>
+
     <camelContext id="cxtBNWrapper" xmlns="http://camel.apache.org/schema/spring">
 
         <errorHandler id="defaultErrorHandler" 
