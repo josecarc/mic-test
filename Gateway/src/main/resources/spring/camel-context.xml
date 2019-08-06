@@ -81,7 +81,7 @@
                 </when>
                 <when>
                     <simple>${header.destinationBank} == 'BN'</simple>
-                    <to uri="activemq:queue:queue.bn.transfer.in}"/>
+                    <to uri="activemq:queue:queue.bn.transfer.in"/>
                 </when>
                 <otherwise>
                     <to uri="direct:invalidDestination"/>
