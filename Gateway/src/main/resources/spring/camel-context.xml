@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                           http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+    <!-- Discovers the ActiveMQ service dynamically -->
+    <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+
+        <!--
+            The following properties can be customized in the application.properties file.
+            Values can be changed using external environment variables (see application.properties for details).
+        -->
+
+        <property name="brokerURL" value="${activemq.broker.url}"/>
+        <property name="userName" value="${activemq.broker.username:#null}"/>
+        <property name="password" value="${activemq.broker.password:#null}"/>
+    </bean>
+
+    <bean primary="true" id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory" init-method="start" destroy-method="stop">
+        <property name="maxConnections" value="${activemq.pool.max.connections}"/>
+        <property name="connectionFactory" ref="jmsConnectionFactory"/>
+    </bean>
+
+    <bean id="jmsConfig" class="org.apache.activemq.camel.component.ActiveMQConfiguration">
+        <property name="connectionFactory" ref="pooledConnectionFactory"/>
+        <property name="concurrentConsumers" value="${activemq.concurrent.consumers}"/>
+    </bean>
+
+    <bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+
+    <camelContext id="cxtGateway" xmlns="http://camel.apache.org/schema/spring">
+
+        <errorHandler id="defaultErrorHandler" 
+                type="DeadLetterChannel" 
+                deadLetterUri="activemq:queue:gateway.transfer.dlq" 
+                redeliveryPolicyRef="redeliveryPolicy" />
+
+        <!-- ROUTES: incoming transfer. redirect to the right provider -->
+        <route id="route_ibs_transfer_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.ibs.transfer.out"/>
+            <to uri="direct:redirectTransfer" />
+        </route>
+
+
+        <route id="route_tsys_transfer_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.tsys.transfer.out"/>
+            <to uri="direct:redirectTransfer" />
+        </route>
+
+
+        <route id="route_bn_transfer_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.bn.transfer.out"/>
+            <to uri="direct:redirectTransfer" />
+        </route>
+
+
+        <route id="route_transfer_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="direct:redirectTransfer" />
+            <setHeader headerName="destinationBank">
+				<xpath>//transfer/destinationBank/text()</xpath>
+            </setHeader>
+            <log loggingLevel="INFO" message="route_transfer_out | ${header.BreadcumId} | Received incoming transfer from ${header.destinationBank}: ${body}"/>
+            <choice>
+                <when>
+                    <simple>${header.destinationBank} == 'IBS'</simple>
+                    <to uri="activemq:queue:ibs.transfer.in"/>
+                </when>
+                <when>
+                    <simple>${header.destinationBank} == 'TSYS'</simple>
+                    <to uri="activemq:queue:tsys.transfer.in"/>
+                </when>
+                <when>
+                    <simple>${header.destinationBank} == 'BN'</simple>
+                    <to uri="activemq:queue:queue.bn.transfer.in}"/>
+                </when>
+                <otherwise>
+                    <to uri="direct:invalidDestination"/>
+                </otherwise>
+            </choice>
+        </route>
+
+
+        <route id="route_transfer_in_error" errorHandlerRef="defaultErrorHandler">
+            <from uri="direct:invalidDestination" />
+            <log loggingLevel="ERROR" message="route_transfer_in_error | ${header.BreadcumId} | Wrong transfer: ${body}"/>
+            <setHeader headerName="sourceTransferId">
+				<xpath>//transfer/sourceTransferId/text()</xpath>
+            </setHeader>
+            <setHeader headerName="sourceBank">
+				<xpath>//transfer/sourceBank/text()</xpath>
+            </setHeader>
+            <setHeader headerName="destinationBank">
+				<xpath>//transfer/destinationBank/text()</xpath>
+            </setHeader>
+            <to uri="language:simple:classpath:responses/feedbackError.xml"/>
+            <to uri="direct:redirectFeedback"/>
+        </route>
+
+
+
+
+
+        <!-- ROUTES: incoming transfer feedback. redirect to the right destination of the feedback -->
+        <route id="route_ibs_transfer_feedback_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.ibs.transfer.feedback.out"/>
+            <to uri="direct:redirectFeedback" />
+        </route>
+
+        <route id="route_tsys_transfer_feedback_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.tsys.transfer.feedback.out"/>
+            <to uri="direct:redirectFeedback" />
+        </route>
+
+        <route id="route_bn_transfer_feedback_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.bn.transfer.feedback.out"/>
+            <to uri="direct:redirectFeedback" />
+        </route>
+
+        <route id="route_transfer_feedback_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="direct:redirectFeedback" />
+            <setHeader headerName="feedbackDestinationBank">
+				<xpath>//transfer/feedbackDestinationBank/text()</xpath>
+            </setHeader>
+            <setHeader headerName="feedbackSourceBank">
+				<xpath>//transfer/feedbackSourceBank/text()</xpath>
+            </setHeader>
+            <log loggingLevel="INFO" message="route_transfer_feedback_out | ${header.BreadcumId} | Received incoming transfer feedback from ${header.feedbackSourceBank}: ${body}"/>
+            <choice>
+                <when>
+                    <simple>${header.feedbackDestinationBank} == 'IBS'</simple>
+                    <to uri="activemq:queue:queue.ibs.transfer.feedback.in"/>
+                </when>
+                <when>
+                    <simple>${header.feedbackDestinationBank} == 'TSYS'</simple>
+                    <to uri="activemq:queue:queue.tsys.transfer.feedback.in"/>
+                </when>
+                <when>
+                    <simple>${header.feedbackDestinationBank} == 'BN'</simple>
+                    <to uri="activemq:queue:queue.bn.transfer.feedback.in"/>
+                </when>
+                <otherwise>
+                    <log loggingLevel="ERROR" message="route_transfer_out | ${header.BreadcumId} | Wrong destination feedback: ${body}"/>
+                    <to uri="activemq:queue:gateway.transfer.dlq"/>
+                </otherwise>
+            </choice>
+        </route>
+
+    </camelContext>
+
+</beans>

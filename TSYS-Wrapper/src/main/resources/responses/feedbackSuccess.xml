@@ -1,0 +1,8 @@
+<transferResponse>
+    <sourceTransferId>${header.sourceTransferId}</sourceTransferId>
+    <destinationTransferId>18423875908752435243</destinationTransferId>
+    <result>SUCCESS</result>
+    <description></description>
+    <feedbackSourceBank>${header.sourceBank}</feedbackSourceBank>
+    <feedbackDestinationBank>${header.destinationBank}</feedbackDestinationBank>
+</transferResponse>

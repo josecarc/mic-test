@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                           http://camel.apache.org/schema/spring http://camel.apache.org/schema/spring/camel-spring.xsd">
+
+
+    <!-- Discovers the ActiveMQ service dynamically -->
+    <bean id="jmsConnectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+
+        <!--
+            The following properties can be customized in the application.properties file.
+            Values can be changed using external environment variables (see application.properties for details).
+        -->
+
+        <property name="brokerURL" value="${activemq.broker.url}"/>
+        <property name="userName" value="${activemq.broker.username:#null}"/>
+        <property name="password" value="${activemq.broker.password:#null}"/>
+    </bean>
+
+    <bean primary="true" id="pooledConnectionFactory" class="org.apache.activemq.pool.PooledConnectionFactory" init-method="start" destroy-method="stop">
+        <property name="maxConnections" value="${activemq.pool.max.connections}"/>
+        <property name="connectionFactory" ref="jmsConnectionFactory"/>
+    </bean>
+
+    <bean id="jmsConfig" class="org.apache.activemq.camel.component.ActiveMQConfiguration">
+        <property name="connectionFactory" ref="pooledConnectionFactory"/>
+        <property name="concurrentConsumers" value="${activemq.concurrent.consumers}"/>
+    </bean>
+
+    <bean id="activemq" class="org.apache.activemq.camel.component.ActiveMQComponent">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+
+    <camelContext id="cxtBNWrapper" xmlns="http://camel.apache.org/schema/spring">
+
+        <errorHandler id="defaultErrorHandler" 
+                type="DeadLetterChannel" 
+                deadLetterUri="activemq:queue:gateway.transfer.dlq" 
+                redeliveryPolicyRef="redeliveryPolicy" />
+
+
+        <!-- ROUTE: incoming transfers -->
+        <route id="route_transfer_in" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:bn.transfer.in"/>
+            <log loggingLevel="INFO" message="route_transfer_in | ${header.BreadcumId} | Receiving transfer message: ${body}"/>
+            <to uri="direct:sendFeedbackSuccess" />
+        </route>
+
+
+        <!-- ROUTE: sending transfer's feedback -->
+        <route id="route_transfer_feedback_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="direct:sendFeedbackSuccess" />
+            <setHeader headerName="sourceTransferId">
+				<xpath>//transfer/sourceTransferId/text()</xpath>
+            </setHeader>
+            <setHeader headerName="sourceBank">
+				<xpath>//transfer/sourceBank/text()</xpath>
+            </setHeader>
+            <setHeader headerName="destinationBank">
+				<xpath>//transfer/destinationBank/text()</xpath>
+            </setHeader>
+            <to uri="language:simple:classpath:responses/feedbackSuccess.xml"/>
+            <log loggingLevel="INFO" message="route_transfer_feedback_out | ${header.BreadcumId} | Sending transfer feedback message: ${body}"/>
+            <to uri="activemq:queue:queue.bn.transfer.feedback.out"/>
+        </route>
+
+
+        <!-- ROUTE: outcoming transfer -->
+        <!--sending a USD 1000 transfer to TSYS each 15 sec -->
+        <route id="route_transfer_out" errorHandlerRef="defaultErrorHandler">
+            <from uri="timer:psignTimer?period=15000"/>
+            <to uri="language:simple:classpath:requests/demoBN2IBS.xml"/>
+            <log loggingLevel="INFO" message="route_transfer_out | ${header.BreadcumId} | Sending transfer message: ${body}"/>
+            <to uri="activemq:queue:bn.transfer.out"/>
+        </route>
+
+        <!-- ROUTE: receiving transfer's feedback -->
+        <route id="route_transfer_feedback_in" errorHandlerRef="defaultErrorHandler">
+            <from uri="activemq:queue:queue.bn.transfer.feedback.in"/>
+            <log loggingLevel="INFO" message="route_transfer_feedback_in | ${header.BreadcumId} | Receiving a transfer feedback message: ${body}"/>
+        </route>
+
+    </camelContext>
+
+</beans>
