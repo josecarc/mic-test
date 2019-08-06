@@ -34,8 +34,8 @@
 
     <!-- redeliveryPolicy -->
 	<bean id="redeliveryPolicy" class="org.apache.camel.processor.RedeliveryPolicy">
-        <property name="maximumRedeliveries" value="${activemq.maximumRedeliveries}"/>
-        <property name="redeliveryDelay" value="${activemq.redeliveryDelay}"/>
+        <property name="maximumRedeliveries" value="10"/>
+        <property name="redeliveryDelay" value="60000"/>
     </bean>
 
     <camelContext id="cxtGateway" xmlns="http://camel.apache.org/schema/spring">
